@@ -5,6 +5,7 @@ import PerfilCuenta from "../Screens/PerfilTab/PerfilCuenta";
 import PerfilSoporte from "../Screens/PerfilTab/PerfilSoporte";
 import PerfilActividad from "../Screens/PerfilTab/PerfilActividad";
 import PerfilScreen from "../Screens/PerfilTab/PerfilScreen";
+import SoporteStackNavigator from "./SoporteStackNavigator";
 
 export type RootStackParamListPerfil = {
   Perfil: undefined;
@@ -24,7 +25,7 @@ export default function PerfilStackNavigator() {
       <Stack.Screen name="Perfil" component={PerfilScreen}  />
       <Stack.Screen name="Configuracion" component={PerfilConfiguracion} />
       <Stack.Screen name="Cuenta" component={PerfilCuenta} />
-      <Stack.Screen name="Soporte" component={PerfilSoporte} />
+      <Stack.Screen name="Soporte" component={SoporteStackNavigator} />
       <Stack.Screen name="Actividad" component={PerfilActividad} />
     </Stack.Navigator>
   );

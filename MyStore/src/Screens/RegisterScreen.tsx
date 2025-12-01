@@ -16,9 +16,64 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import ValidacionRegistro from "../components/Register";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "../Contexts/ThemeContext";
-import * as ImagePicker from "expo-image-picker"; // 👈 IMPORTANTE
+import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import { supabase } from "../supabaseClient";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Register">;
+
+export interface Usuario {
+  id: number; // int8 en Supabase
+  created_at: string;
+  nombre_completo: string;
+  nombre_usuario: string;
+  correo_electronico: string;
+  direccion_domicilio: string | null;
+  telefono: string | null;
+  fecha_de_nacimiento: string | null;
+  ultimo_inicio: string | null;
+  avatar: string | null;
+}
+
+// 🔼 Subir avatar a Supabase Storage (bucket: Avatar)
+async function uploadAvatar(uri: string, userId: number) {
+  // 1. Leer el archivo como base64
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    // algunos typings de expo-file-system no exponen EncodingType,
+    // así que usamos el string directamente:
+    encoding: "base64" as any,
+  });
+
+  // 2. base64 -> Uint8Array
+  const binaryString = (global as any).atob(base64);
+  const buffer = Uint8Array.from(
+    binaryString,
+    (c: string) => c.charCodeAt(0)
+  );
+
+  // 3. Nombre del archivo dentro del bucket
+  const filePath = `${userId}_${Date.now()}.jpg`;
+
+  // 4. Subir al bucket "Avatar"
+  const { data, error } = await supabase.storage
+    .from("Avatar") // 👈 nombre EXACTO del bucket
+    .upload(filePath, buffer, {
+      contentType: "image/jpeg",
+      upsert: true,
+    });
+
+  if (error) {
+    console.error("Error subiendo imagen:", error);
+    return null;
+  }
+
+  // 5. Obtener URL pública
+  const { data: publicUrlData } = supabase.storage
+    .from("Avatar")
+    .getPublicUrl(filePath);
+
+  return publicUrlData.publicUrl as string;
+}
 
 export default function RegisterScreen({ navigation }: Props) {
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -36,7 +91,7 @@ export default function RegisterScreen({ navigation }: Props) {
 
   const { theme } = useTheme();
 
-  const handleRegistro = () => {
+  const handleRegistro = async () => {
     const { valido, errores } = ValidacionRegistro({
       nombreCompleto,
       usuario,
@@ -53,16 +108,63 @@ export default function RegisterScreen({ navigation }: Props) {
       return;
     }
 
-    Alert.alert(
-      "¡Registro exitoso!",
-      "Tu cuenta ha sido creada correctamente.",
-      [
-        {
-          text: "Aceptar",
-          onPress: () => navigation.navigate("Login"),
-        },
-      ]
-    );
+    try {
+      // 1️⃣ Crear usuario sin avatar aún
+      const { data: nuevoUsuario, error } = await supabase
+        .from("usuario")
+        .insert({
+          nombre_completo: nombreCompleto,
+          nombre_usuario: usuario,
+          correo_electronico: correo,
+          direccion_domicilio: domicilio || null,
+          telefono: telefono || null,
+          fecha_de_nacimiento: fechaNacimiento || null,
+          avatar: null,
+        })
+        .select()
+        .single<Usuario>();
+
+      if (error || !nuevoUsuario) {
+        console.log("Error al crear usuario:", error);
+        throw error;
+      }
+
+      // 2️⃣ Si hay foto, subirla y obtener URL
+      let urlAvatar: string | null = null;
+
+      if (fotoPerfil) {
+        urlAvatar = await uploadAvatar(fotoPerfil, nuevoUsuario.id);
+      }
+
+      // 3️⃣ Actualizar usuario con la URL del avatar
+      if (urlAvatar) {
+        const { error: updateError } = await supabase
+          .from("usuario")
+          .update({ avatar: urlAvatar })
+          .eq("id", nuevoUsuario.id);
+
+        if (updateError) {
+          console.log("Error actualizando avatar:", updateError);
+        }
+      }
+
+      Alert.alert(
+        "¡Registro exitoso!",
+        "Tu cuenta ha sido creada correctamente.",
+        [
+          {
+            text: "Aceptar",
+            onPress: () => navigation.navigate("Login"),
+          },
+        ]
+      );
+    } catch (error) {
+      console.log("Error en handleRegistro:", error);
+      Alert.alert(
+        "Error",
+        "Ocurrió un problema al crear tu cuenta. Inténtalo de nuevo."
+      );
+    }
   };
 
   const handleChangeFecha = (event: any, selectedDate?: Date) => {
@@ -91,11 +193,12 @@ export default function RegisterScreen({ navigation }: Props) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true, 
-      aspect: [1, 1], 
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, // warning pero sigue funcionando
+      allowsEditing: true,
+      aspect: [1, 1],
       quality: 0.8,
     });
+
     if (!result.canceled && result.assets && result.assets.length > 0) {
       setFotoPerfil(result.assets[0].uri);
     }
@@ -110,19 +213,11 @@ export default function RegisterScreen({ navigation }: Props) {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View
-          style={[
-            styles.container,
-            { backgroundColor: theme.background },
-          ]}
-        >
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
           <View style={styles.fotoContainer}>
             <TouchableOpacity onPress={handleSeleccionarFoto}>
               {fotoPerfil ? (
-                <Image
-                  source={{ uri: fotoPerfil }}
-                  style={styles.avatar}
-                />
+                <Image source={{ uri: fotoPerfil }} style={styles.avatar} />
               ) : (
                 <View style={[styles.avatar, styles.avatarPlaceholder]}>
                   <Text style={styles.avatarText}>Foto</Text>
@@ -154,7 +249,7 @@ export default function RegisterScreen({ navigation }: Props) {
             <Text style={styles.errorText}>{errores.nombreCompleto}</Text>
           )}
 
-          {/* usuario */}
+          {/* Usuario */}
           <Text style={[styles.textlabels, { color: theme.text }]}>
             Nombre de usuario:
           </Text>
@@ -216,10 +311,7 @@ export default function RegisterScreen({ navigation }: Props) {
             Fecha de nacimiento:
           </Text>
           <TouchableOpacity
-            style={[
-              styles.datepickerboton,
-              { borderColor: theme.border },
-            ]}
+            style={[styles.datepickerboton, { borderColor: theme.border }]}
             onPress={() => setShowDatePicker(true)}
           >
             <Text style={styles.textoboton}>
@@ -344,11 +436,10 @@ const styles = StyleSheet.create({
     width: 150,
     padding: 0,
   },
-
   fotoContainer: {
     alignItems: "center",
     marginBottom: 20,
-    marginTop: 50
+    marginTop: 50,
   },
   avatar: {
     width: 90,

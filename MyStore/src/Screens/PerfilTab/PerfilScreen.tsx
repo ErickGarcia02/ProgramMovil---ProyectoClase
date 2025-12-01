@@ -14,7 +14,7 @@ type Props = NativeStackScreenProps<RootStackParamListPerfil, "Perfil">;
 
 export default function PerfilScreen({ navigation }: Props) {
   const { logout } = useAuth();
-  const { theme } = useTheme(); // 👈 usamos el theme
+  const { theme } = useTheme(); 
 
   const HandleNavigateActividad = () => {
     navigation.navigate("Actividad");
@@ -40,7 +40,7 @@ export default function PerfilScreen({ navigation }: Props) {
     <View
       style={[
         styles.container,
-        { backgroundColor: theme.background }, // 👈 fondo según tema
+        { backgroundColor: theme.background },
       ]}
     >
       {/* Cuenta */}
